@@ -619,13 +619,18 @@ def build_circuit(msp):
 # ---------------------------------------------------------------------------
 
 def main():
-    doc = ezdxf.new(dxfversion="R2010")  # AC1024 – fully compatible with AutoCAD 2025
+    # R2010 (AC1024) is backward-compatible and opens without issues in AutoCAD
+    # 2025 (native format R2018/AC1032 is a superset; R2010 is universally safe).
+    doc = ezdxf.new(dxfversion="R2010")
 
     # Document-level settings
-    doc.header["$INSUNITS"] = 4      # millimetres
-    doc.header["$MEASUREMENT"] = 1   # metric
+    doc.header["$INSUNITS"] = 4        # millimetres
+    doc.header["$MEASUREMENT"] = 1     # metric
     doc.header["$DIMSCALE"] = 1.0
     doc.header["$LTSCALE"] = 1.0
+    # Sheet limits: A1 landscape (841 × 594 mm) – must match build_circuit() W/H
+    doc.header["$LIMMIN"] = (0.0, 0.0)
+    doc.header["$LIMMAX"] = (841.0, 594.0)
 
     # Layers
     layer_defs = [
@@ -644,11 +649,28 @@ def main():
 
     out = "/home/runner/work/cad/cad/EXB360_travel_hydraulic_circuit.dxf"
     doc.saveas(out)
+
+    # ezdxf 1.x resets $LIMMAX to A4 (420×297) at save time regardless of the
+    # header assignment above.  Patch the raw text so AutoCAD displays the
+    # correct A1 drawing limits (841 × 594 mm) on open.
+    import re
+    with open(out, encoding="utf-8") as fh:
+        raw = fh.read()
+    raw = re.sub(
+        r'(\$LIMMAX\n 10\n)420\.0(\n 20\n)297\.0',
+        r'\g<1>841.0\g<2>594.0',
+        raw,
+    )
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write(raw)
     print(f"Saved: {out}")
 
-    # Quick audit
+    # Final audit
     doc2 = ezdxf.readfile(out)
-    print(f"Re-read OK – entity count: {len(list(doc2.modelspace()))}")
+    errors = list(doc2.audit().errors)
+    assert len(errors) == 0, f"DXF audit errors: {errors}"
+    print(f"Re-read OK – entities: {len(list(doc2.modelspace()))}, "
+          f"$LIMMAX: {doc2.header.get('$LIMMAX')}, audit errors: 0")
 
 
 if __name__ == "__main__":
